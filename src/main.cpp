@@ -1,4 +1,6 @@
 ﻿#include <Arduino.h>
+#include <WebServer.h>
+#include <WiFi.h>
 #include "config.h"
 
 static const uint8_t LEFT_FRONT = LEFT_FRONT_BLINKER;
@@ -7,6 +9,68 @@ static const uint8_t RIGHT_FRONT = RIGHT_FRONT_BLINKER;
 static const uint8_t RIGHT_REAR = RIGHT_REAR_BLINKER;
 
 static const uint8_t ALL_LIGHTS[] = { LEFT_FRONT, LEFT_REAR, RIGHT_FRONT, RIGHT_REAR };
+
+WebServer webServer(80);
+
+bool webLeftSwitchOn = false;
+bool webRightSwitchOn = false;
+bool webBrakeSwitchOn = false;
+
+const char WEB_PAGE[] PROGMEM = R"rawliteral(
+<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hondavidson lights</title><style>
+body{font-family:Arial,sans-serif;margin:24px;max-width:680px;color:#1b1b1b}h1{margin-bottom:4px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:20px 0}.item{border:1px solid #bbb;padding:14px;border-radius:6px}.state{font-weight:bold}.on{color:#087f23}.off{color:#aa1e1e}button{width:100%;margin-top:10px;padding:10px;font-size:16px;cursor:pointer}
+</style></head><body><h1>Hondavidson lights</h1><p>Physical switches and web controls are combined.</p>
+<div id="switches" class="grid"></div><h2>Outputs</h2><div id="outputs" class="grid"></div>
+<script>
+const switches=[['left','Left blinker'],['right','Right blinker'],['brake','Brake']];
+const outputs=[['leftFront','Left front'],['rightFront','Right front'],['leftRear','Left rear'],['rightRear','Right rear']];
+function state(value){return `<span class="state ${value?'on':'off'}">${value?'ON':'OFF'}</span>`}
+function render(data){document.getElementById('switches').innerHTML=switches.map(([key,label])=>`<div class="item"><b>${label}</b><p>Effective: ${state(data.switches[key])}<br>Physical: ${state(data.physical[key])}<br>Web: ${state(data.web[key])}</p><button onclick="toggle('${key}',${!data.web[key]})">Turn web ${data.web[key]?'off':'on'}</button></div>`).join('');document.getElementById('outputs').innerHTML=outputs.map(([key,label])=>`<div class="item"><b>${label}</b><p>${state(data.outputs[key])}</p></div>`).join('')}
+function update(){fetch('/status').then(response=>response.json()).then(render)}
+function toggle(name,enabled){fetch(`/switch?name=${name}&state=${enabled?1:0}`).then(update)}
+update();setInterval(update,500);
+</script></body></html>
+)rawliteral";
+
+void sendStatus() {
+  const bool physicalLeft = digitalRead(LEFT_BLINKER_SWITCH_PIN) == LOW;
+  const bool physicalRight = digitalRead(RIGHT_BLINKER_SWITCH_PIN) == LOW;
+  const bool physicalBrake = digitalRead(BRAKE_SWITCH_PIN) == LOW;
+
+  String status = "{\"physical\":{\"left\":" + String(physicalLeft ? "true" : "false") +
+                  ",\"right\":" + String(physicalRight ? "true" : "false") +
+                  ",\"brake\":" + String(physicalBrake ? "true" : "false") +
+                  "},\"web\":{\"left\":" + String(webLeftSwitchOn ? "true" : "false") +
+                  ",\"right\":" + String(webRightSwitchOn ? "true" : "false") +
+                  ",\"brake\":" + String(webBrakeSwitchOn ? "true" : "false") +
+                  "},\"switches\":{\"left\":" + String((physicalLeft || webLeftSwitchOn) ? "true" : "false") +
+                  ",\"right\":" + String((physicalRight || webRightSwitchOn) ? "true" : "false") +
+                  ",\"brake\":" + String((physicalBrake || webBrakeSwitchOn) ? "true" : "false") +
+                  "},\"outputs\":{\"leftFront\":" + String(digitalRead(LEFT_FRONT) == HIGH ? "true" : "false") +
+                  ",\"rightFront\":" + String(digitalRead(RIGHT_FRONT) == HIGH ? "true" : "false") +
+                  ",\"leftRear\":" + String(digitalRead(LEFT_REAR) == HIGH ? "true" : "false") +
+                  ",\"rightRear\":" + String(digitalRead(RIGHT_REAR) == HIGH ? "true" : "false") + "}}";
+  webServer.send(200, "application/json", status);
+}
+
+void setWebSwitch() {
+  const String name = webServer.arg("name");
+  const bool enabled = webServer.arg("state") == "1";
+
+  if (name == "left") {
+    webLeftSwitchOn = enabled;
+  } else if (name == "right") {
+    webRightSwitchOn = enabled;
+  } else if (name == "brake") {
+    webBrakeSwitchOn = enabled;
+  } else {
+    webServer.send(400, "text/plain", "Unknown switch");
+    return;
+  }
+
+  sendStatus();
+}
 
 void setGroupState(const uint8_t pins[], size_t count, bool enabled) {
   for (size_t i = 0; i < count; ++i) {
@@ -143,32 +207,46 @@ void setup() {
 
   setAllLights(false);
 
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD);
+  webServer.on("/", HTTP_GET, []() { webServer.send_P(200, "text/html", WEB_PAGE); });
+  webServer.on("/status", HTTP_GET, sendStatus);
+  webServer.on("/switch", HTTP_GET, setWebSwitch);
+  webServer.begin();
+
   delay(1000);
   Serial.println("ESP32-C3 blinker controller ready");
+  Serial.print("Web server: http://");
+  Serial.println(WiFi.softAPIP());
 }
 
 void loop() {
-  const bool leftSwitchOn = (digitalRead(LEFT_BLINKER_SWITCH_PIN) == LOW);
-  const bool rightSwitchOn = (digitalRead(RIGHT_BLINKER_SWITCH_PIN) == LOW);
-  const bool brakeSwitchOn = (digitalRead(BRAKE_SWITCH_PIN) == LOW);
+  webServer.handleClient();
+
+  const bool physicalLeftSwitchOn = (digitalRead(LEFT_BLINKER_SWITCH_PIN) == LOW);
+  const bool physicalRightSwitchOn = (digitalRead(RIGHT_BLINKER_SWITCH_PIN) == LOW);
+  const bool physicalBrakeSwitchOn = (digitalRead(BRAKE_SWITCH_PIN) == LOW);
+  const bool leftSwitchOn = physicalLeftSwitchOn || webLeftSwitchOn;
+  const bool rightSwitchOn = physicalRightSwitchOn || webRightSwitchOn;
+  const bool brakeSwitchOn = physicalBrakeSwitchOn || webBrakeSwitchOn;
 
   static bool previousLeftSwitchOn = false;
   static bool previousRightSwitchOn = false;
   static bool previousBrakeSwitchOn = false;
 
-  if (leftSwitchOn != previousLeftSwitchOn) {
-    Serial.println(leftSwitchOn ? "Left blinker switch ON" : "Left blinker switch OFF");
-    previousLeftSwitchOn = leftSwitchOn;
+  if (physicalLeftSwitchOn != previousLeftSwitchOn) {
+    Serial.println(physicalLeftSwitchOn ? "Left blinker switch ON" : "Left blinker switch OFF");
+    previousLeftSwitchOn = physicalLeftSwitchOn;
   }
 
-  if (rightSwitchOn != previousRightSwitchOn) {
-    Serial.println(rightSwitchOn ? "Right blinker switch ON" : "Right blinker switch OFF");
-    previousRightSwitchOn = rightSwitchOn;
+  if (physicalRightSwitchOn != previousRightSwitchOn) {
+    Serial.println(physicalRightSwitchOn ? "Right blinker switch ON" : "Right blinker switch OFF");
+    previousRightSwitchOn = physicalRightSwitchOn;
   }
 
-  if (brakeSwitchOn != previousBrakeSwitchOn) {
-    Serial.println(brakeSwitchOn ? "Brake switch ON" : "Brake switch OFF");
-    previousBrakeSwitchOn = brakeSwitchOn;
+  if (physicalBrakeSwitchOn != previousBrakeSwitchOn) {
+    Serial.println(physicalBrakeSwitchOn ? "Brake switch ON" : "Brake switch OFF");
+    previousBrakeSwitchOn = physicalBrakeSwitchOn;
   }
 
   static bool brakeWasActive = false;

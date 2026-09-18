@@ -40,3 +40,10 @@ inline constexpr float LOAD_VOLTAGE = 12.0f;
 // ============================================================
 
 inline constexpr uint32_t SERIAL_BAUD = 115200;
+
+// ============================================================
+// Wi-Fi access point
+// ============================================================
+
+inline constexpr char WIFI_AP_SSID[] = "Hondavidson-Valot";
+inline constexpr char WIFI_AP_PASSWORD[] = "valoboksi";
