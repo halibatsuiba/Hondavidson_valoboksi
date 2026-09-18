@@ -26,8 +26,8 @@ inline constexpr uint8_t LEFT_REAR_BLINKER = ULN_IN3;
 inline constexpr uint8_t RIGHT_REAR_BLINKER = ULN_IN4;
 
 inline constexpr uint8_t LEFT_BLINKER_SWITCH_PIN = 6;
-inline constexpr uint8_t RIGHT_BLINKER_SWITCH_PIN = 7;
-inline constexpr uint8_t BRAKE_SWITCH_PIN = 8;
+inline constexpr uint8_t RIGHT_BLINKER_SWITCH_PIN = 8;
+inline constexpr uint8_t BRAKE_SWITCH_PIN = 7;
 
 // ============================================================
 // 12 V supply

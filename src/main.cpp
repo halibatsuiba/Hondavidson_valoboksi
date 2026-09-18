@@ -152,6 +152,25 @@ void loop() {
   const bool rightSwitchOn = (digitalRead(RIGHT_BLINKER_SWITCH_PIN) == LOW);
   const bool brakeSwitchOn = (digitalRead(BRAKE_SWITCH_PIN) == LOW);
 
+  static bool previousLeftSwitchOn = false;
+  static bool previousRightSwitchOn = false;
+  static bool previousBrakeSwitchOn = false;
+
+  if (leftSwitchOn != previousLeftSwitchOn) {
+    Serial.println(leftSwitchOn ? "Left blinker switch ON" : "Left blinker switch OFF");
+    previousLeftSwitchOn = leftSwitchOn;
+  }
+
+  if (rightSwitchOn != previousRightSwitchOn) {
+    Serial.println(rightSwitchOn ? "Right blinker switch ON" : "Right blinker switch OFF");
+    previousRightSwitchOn = rightSwitchOn;
+  }
+
+  if (brakeSwitchOn != previousBrakeSwitchOn) {
+    Serial.println(brakeSwitchOn ? "Brake switch ON" : "Brake switch OFF");
+    previousBrakeSwitchOn = brakeSwitchOn;
+  }
+
   static bool brakeWasActive = false;
   static bool brakeLatch = false;
 
